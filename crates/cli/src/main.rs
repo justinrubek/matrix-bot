@@ -9,10 +9,13 @@ use matrix_sdk::{
     room::Room,
     ruma::{
         events::{
-            room::message::{MessageType, RoomMessageEventContent, SyncRoomMessageEvent},
+            room::message::{
+                ImageMessageEventContent, MessageType, RoomMessageEventContent,
+                SyncRoomMessageEvent,
+            },
             MessageLikeEvent, OriginalMessageLikeEvent, SyncMessageLikeEvent,
         },
-        OwnedRoomId, OwnedUserId,
+        OwnedMxcUri, OwnedRoomId, OwnedUserId,
     },
     Client,
 };
@@ -151,14 +154,25 @@ fn generate_images_from_requests(
     Ok(())
 }
 
+async fn upload_image(client: &Client, image_data: &[u8]) -> Result<OwnedMxcUri> {
+    let media = client.media();
+    let image = media.upload(&mime::IMAGE_PNG, image_data).await?;
+    Ok(image.content_uri)
+}
+
 /// Receives responses asynchronously and sends them back to the room they came from
 async fn send_responses(
     client: Client,
     mut response_rx: tokio::sync::mpsc::UnboundedReceiver<ImageResult>,
 ) -> Result<()> {
     while let Some(response) = response_rx.recv().await {
+        let image = upload_image(&client, &response.image).await?;
+
         let body = format!("Okay. Here is `{}`", response.prompt);
-        let content = RoomMessageEventContent::text_plain(body)
+        let content = ImageMessageEventContent::plain(body, image, None);
+
+        let message_type = MessageType::Image(content);
+        let content = RoomMessageEventContent::new(message_type)
             .make_reply_to(&response.message_context.event);
 
         let room = client

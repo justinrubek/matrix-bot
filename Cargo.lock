@@ -440,6 +440,7 @@ dependencies = [
  "anyhow",
  "clap",
  "matrix-sdk",
+ "mime",
  "thiserror",
  "tokio",
  "tracing",

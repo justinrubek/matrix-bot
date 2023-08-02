@@ -13,3 +13,4 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = "0.3.16"
 matrix-sdk.workspace = true
+mime = "0.3.17"
