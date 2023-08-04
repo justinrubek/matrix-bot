@@ -21,6 +21,13 @@
       url = "github:justinrubek/bomper";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    generation-toolkit = {
+      url = "github:justinrubek/generation-toolkit";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.fenix.follows = "fenix";
+      inputs.crane.follows = "crane";
+    };
   };
 
   outputs = inputs:
