@@ -22,6 +22,7 @@ use matrix_sdk::{
 use tracing::info;
 
 mod commands;
+mod config;
 mod error;
 
 #[derive(Clone, Debug)]
@@ -138,6 +139,7 @@ async fn setup_event_handler(client: Client, token: String, context: HandlerCont
 }
 
 fn generate_images_from_requests(
+    models_path: &std::path::Path,
     mut message_rx: tokio::sync::mpsc::UnboundedReceiver<ImageRequest>,
     response_tx: tokio::sync::mpsc::UnboundedSender<ImageResult>,
 ) -> Result<()> {
@@ -189,6 +191,8 @@ async fn send_responses(
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
+    let config = crate::config::Config::load()?;
+
     // create two channels for communicating between the synchronous thread and the async runtime
     // for communicating image requests from messages
     let (message_tx, message_rx) = tokio::sync::mpsc::unbounded_channel::<ImageRequest>();
@@ -197,12 +201,9 @@ async fn main() -> Result<()> {
 
     // Spawn a long-running thread to process requests synchronously
     std::thread::spawn(move || {
-        generate_images_from_requests(message_rx, response_tx).unwrap();
+        generate_images_from_requests(&config.stable_diffusion_models, message_rx, response_tx)
+            .unwrap();
     });
-
-    let homeserver = std::env::var("MATRIX_HOMESERVER").unwrap();
-    let user = std::env::var("MATRIX_USERNAME").unwrap();
-    let password = std::env::var("MATRIX_PASSWORD").unwrap();
 
     let args = commands::Args::parse();
     match args.command {
@@ -210,7 +211,9 @@ async fn main() -> Result<()> {
             let cmd = matrix_bot.command;
             match cmd {
                 MatrixBotCommands::Run(_run_args) => {
-                    let (client, token) = login_and_sync(&homeserver, &user, &password).await?;
+                    let (client, token) =
+                        login_and_sync(&config.homeserver, &config.username, &config.password)
+                            .await?;
                     let client_clone = client.clone();
 
                     // create a context to pass to our event handler

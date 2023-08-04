@@ -9,6 +9,9 @@ pub enum Error {
     RequestChannel(#[from] tokio::sync::mpsc::error::SendError<crate::ImageRequest>),
     #[error(transparent)]
     ResponseChannel(#[from] tokio::sync::mpsc::error::SendError<crate::ImageResult>),
+
+    #[error(transparent)]
+    Config(#[from] config::ConfigError),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
