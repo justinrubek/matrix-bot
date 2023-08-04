@@ -9,16 +9,20 @@ use matrix_sdk::{
     room::Room,
     ruma::{
         events::{
-            room::message::{MessageType, RoomMessageEventContent, SyncRoomMessageEvent},
+            room::message::{
+                ImageMessageEventContent, MessageType, RoomMessageEventContent,
+                SyncRoomMessageEvent,
+            },
             MessageLikeEvent, OriginalMessageLikeEvent, SyncMessageLikeEvent,
         },
-        OwnedRoomId, OwnedUserId,
+        OwnedMxcUri, OwnedRoomId, OwnedUserId,
     },
     Client,
 };
 use tracing::info;
 
 mod commands;
+mod config;
 mod error;
 
 #[derive(Clone, Debug)]
@@ -135,6 +139,7 @@ async fn setup_event_handler(client: Client, token: String, context: HandlerCont
 }
 
 fn generate_images_from_requests(
+    models_path: &std::path::Path,
     mut message_rx: tokio::sync::mpsc::UnboundedReceiver<ImageRequest>,
     response_tx: tokio::sync::mpsc::UnboundedSender<ImageResult>,
 ) -> Result<()> {
@@ -151,14 +156,25 @@ fn generate_images_from_requests(
     Ok(())
 }
 
+async fn upload_image(client: &Client, image_data: &[u8]) -> Result<OwnedMxcUri> {
+    let media = client.media();
+    let image = media.upload(&mime::IMAGE_PNG, image_data).await?;
+    Ok(image.content_uri)
+}
+
 /// Receives responses asynchronously and sends them back to the room they came from
 async fn send_responses(
     client: Client,
     mut response_rx: tokio::sync::mpsc::UnboundedReceiver<ImageResult>,
 ) -> Result<()> {
     while let Some(response) = response_rx.recv().await {
+        let image = upload_image(&client, &response.image).await?;
+
         let body = format!("Okay. Here is `{}`", response.prompt);
-        let content = RoomMessageEventContent::text_plain(body)
+        let content = ImageMessageEventContent::plain(body, image, None);
+
+        let message_type = MessageType::Image(content);
+        let content = RoomMessageEventContent::new(message_type)
             .make_reply_to(&response.message_context.event);
 
         let room = client
@@ -175,6 +191,8 @@ async fn send_responses(
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
+    let config = crate::config::Config::load()?;
+
     // create two channels for communicating between the synchronous thread and the async runtime
     // for communicating image requests from messages
     let (message_tx, message_rx) = tokio::sync::mpsc::unbounded_channel::<ImageRequest>();
@@ -183,12 +201,9 @@ async fn main() -> Result<()> {
 
     // Spawn a long-running thread to process requests synchronously
     std::thread::spawn(move || {
-        generate_images_from_requests(message_rx, response_tx).unwrap();
+        generate_images_from_requests(&config.stable_diffusion_models, message_rx, response_tx)
+            .unwrap();
     });
-
-    let homeserver = std::env::var("MATRIX_HOMESERVER").unwrap();
-    let user = std::env::var("MATRIX_USERNAME").unwrap();
-    let password = std::env::var("MATRIX_PASSWORD").unwrap();
 
     let args = commands::Args::parse();
     match args.command {
@@ -196,7 +211,9 @@ async fn main() -> Result<()> {
             let cmd = matrix_bot.command;
             match cmd {
                 MatrixBotCommands::Run(_run_args) => {
-                    let (client, token) = login_and_sync(&homeserver, &user, &password).await?;
+                    let (client, token) =
+                        login_and_sync(&config.homeserver, &config.username, &config.password)
+                            .await?;
                     let client_clone = client.clone();
 
                     // create a context to pass to our event handler
